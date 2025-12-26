@@ -305,7 +305,7 @@ Goal:
 ### Repository Layout
 
 ```
-/deep-research-assistant
+/deep-trace-assistant
 │
 ├── backend/                    # FastAPI backend (SOURCE OF TRUTH)
 │   ├── app/

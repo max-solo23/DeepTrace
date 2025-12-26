@@ -6,7 +6,7 @@ Run this to ensure the database layer is working correctly.
 
 import logging
 from datetime import datetime
-from backend.data import (
+from backend.app.data import (
     init_db,
     save_report,
     get_report,

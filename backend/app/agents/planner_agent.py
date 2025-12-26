@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from agents import Agent
-from backend.core import ResearchMode, get_mode_config
+from backend.app.core import ResearchMode, get_mode_config
 
 
 def get_instructions(mode: ResearchMode) -> str:

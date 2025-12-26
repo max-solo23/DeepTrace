@@ -129,21 +129,21 @@ From `docs/CONTRIBUTING.md`:
 
 Orchestrated by `ResearchManager.run()` (async generator that yields status updates):
 
-1. **Planner Agent** (`planner_agent.py`)
+1. **Planner Agent** (`backend/app/agents/planner_agent.py`)
    - Analyzes query → generates `WebSearchPlan`
    - Mode-aware: creates different plans for Quick (4-6 sources) vs Deep (10-14 sources)
    - Factory pattern: `create_planner_agent(mode)`
    - Model: `gpt-5-nano`
    - Output: `WebSearchPlan` (Pydantic)
 
-2. **Search Agent** (`search_agent.py`)
+2. **Search Agent** (`backend/app/agents/search_agent.py`)
    - Executes web searches in parallel
    - Returns concise summaries: 2-3 paragraphs, <300 words
    - Uses `WebSearchTool(search_context_size="low")`
    - Model: `gpt-5-nano` with `tool_choice="required"`
    - Error handling: retry logic with exponential backoff
 
-3. **Writer Agent** (`writer_agent.py`)
+3. **Writer Agent** (`backend/app/agents/writer_agent.py`)
    - Synthesizes search results → detailed Markdown report
    - Target: 5-10 pages, ≥1000 words
    - Model: `gpt-5-nano`
@@ -151,12 +151,12 @@ Orchestrated by `ResearchManager.run()` (async generator that yields status upda
      - summary, goals, methodology, findings, competitors, risks
      - opportunities, recommendations, confidence_score, markdown_report, follow_up_questions
 
-4. **Email Agent** (`email_agent.py`)
+4. **Email Agent** (`backend/app/agents/email_agent.py`)
    - Converts Markdown → HTML → SendGrid
    - Optional (skips if `SENDGRID_API_KEY` not set)
    - Model: `gpt-5-nano`
 
-5. **Clarifying Agent** (`clarifying_agent.py`)
+5. **Clarifying Agent** (`backend/app/agents/clarifying_agent.py`)
    - Detects vague queries that need clarification
    - Generates 2-3 focused clarifying questions
    - Model: `gpt-5-nano`
@@ -164,41 +164,61 @@ Orchestrated by `ResearchManager.run()` (async generator that yields status upda
 
 ### Backend Core Modules
 
-**`backend/core/`** - Core utilities and business logic:
+**`backend/app/core/`** - Core utilities and business logic:
+- `orchestrator.py` - ResearchManager orchestration with retry logic & error handling
 - `types.py` - ResearchMode enum, MODE_CONFIG, validation
 - `confidence.py` - Confidence scoring algorithm
 - `retry.py` - Retry logic with exponential backoff
 - `monitoring.py` - Performance tracking
 - `__init__.py` - Public API exports
 
-**`backend/data/`** - Database persistence layer:
+**`backend/app/data/`** - Database persistence layer:
 - `db.py` - SQLite CRUD operations (PostgreSQL-compatible)
 - `__init__.py` - Public API exports
 
 ### File Structure (Current MVP)
 
 ```
-deep_research.py        # Gradio UI with mode selector
-research_manager.py     # Orchestrator with retry logic & error handling
-planner_agent.py        # Mode-aware WebSearchPlan generator
-search_agent.py         # Parallel web search executor
-writer_agent.py         # Report synthesizer (11-field schema)
-email_agent.py          # SendGrid integration
-clarifying_agent.py     # Vague query detector
-requirements.txt        # Dependencies
+app.py                  # Gradio UI entry point with mode selector
 .env.example           # Environment template
+.gitignore             # Git ignore patterns
 CLAUDE.md              # This file - Claude Code guidance
+README.md              # Project README
 
-backend/                # Backend modules
-  core/                 # Core utilities
-    __init__.py         # Exports: ResearchMode, confidence, retry, etc.
-    types.py            # ResearchMode enum and MODE_CONFIG
-    confidence.py       # Confidence scoring algorithm
-    retry.py            # Retry logic with exponential backoff
-    monitoring.py       # PerformanceTracker class
-  data/                 # Database layer
-    __init__.py         # Exports: init_db, save_report, get_report, etc.
-    db.py               # SQLite CRUD operations
+backend/                # Backend application (follows project_spec.md structure)
+  app/
+    agents/             # AI agents
+      planner_agent.py      # Mode-aware WebSearchPlan generator
+      search_agent.py       # Parallel web search executor
+      writer_agent.py       # Report synthesizer (11-field schema)
+      email_agent.py        # SendGrid integration
+      clarifying_agent.py   # Vague query detector
+    api/                # API layer (prepared for FastAPI migration)
+      routes/
+    core/               # Core utilities and business logic
+      orchestrator.py       # ResearchManager with retry logic & error handling
+      types.py              # ResearchMode enum, MODE_CONFIG, validation
+      confidence.py         # Confidence scoring algorithm
+      retry.py              # Retry logic with exponential backoff
+      monitoring.py         # Performance tracking
+      __init__.py           # Exports: ResearchMode, confidence, retry, etc.
+    data/               # Database persistence layer
+      db.py                 # SQLite CRUD operations (PostgreSQL-compatible)
+      migrations/           # Future database migrations
+      __init__.py           # Exports: init_db, save_report, get_report, etc.
+    search/             # Search integrations (prepared for future)
+    workers/            # Background task workers (prepared for future)
+  tests/                # Test suite
+    test_db.py              # Database layer tests
+    test_pipeline.py        # Agent system integration tests
+    test_agents.py          # Research modes validation tests
+    test_db_integration.py  # Database integration tests
+    test_export.py          # Export functionality tests
+  requirements.txt      # Python dependencies
+
+data/                   # Local data storage
+  research.db          # SQLite database (gitignored)
+  memory-tool.db       # Legacy database file (gitignored)
 
 docs/                   # Documentation
   architecture.md       # System design and data flow
@@ -210,9 +230,7 @@ docs/                   # Documentation
   TEST_STRATEGY.md           # Testing approach
   CONTRIBUTING.md            # Contribution guidelines
 
-test_db.py              # Database tests
-test_enhanced_system.py # Agent system tests
-test_modes.py           # Research modes validation
+exports/                # Exported research reports (gitignored)
 ```
 
 ---
@@ -230,7 +248,7 @@ python -m venv .venv
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 cp .env.example .env
 # Edit .env: set OPENAI_API_KEY (required)
 # Optional: SENDGRID_API_KEY, SENDGRID_FROM, SENDGRID_TO
@@ -287,10 +305,12 @@ cp .env.example .env
 ### Run Application
 
 ```bash
-python deep_research.py
+python app.py
 ```
 - Launches Gradio UI with `inbrowser=True`
 - Console prints OpenAI trace links: `https://platform.openai.com/traces/trace?trace_id={trace_id}`
+- Database stored in `data/research.db`
+- Exported reports saved to `exports/` directory
 
 ### Debugging
 

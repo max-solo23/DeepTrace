@@ -34,6 +34,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # Gradio
 gradio_cached_examples/
@@ -50,3 +51,5 @@ gradio_cached_examples/
 
 .codeviz
 .claude
+exports
+.local-marketplace

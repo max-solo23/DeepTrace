@@ -20,20 +20,46 @@ DeepTrace is a multi-agent AI research assistant built on the OpenAI Agents SDK.
 
 ```
 DeepTrace/
-├── deep_research.py        # Gradio UI entrypoint
-├── research_manager.py     # Main orchestrator
-├── planner_agent.py        # Query planning agent
-├── search_agent.py         # Web search agent
-├── writer_agent.py         # Report synthesis agent
-├── email_agent.py          # Email delivery agent
-├── requirements.txt
-├── .env.example
-├── CLAUDE.md              # Claude Code guidance
-└── docs/
-    ├── project_spec.md    # Complete specifications
-    ├── architecture.md    # This file
-    ├── changelog.md       # Version history
-    └── project_status.md  # Current progress
+├── app.py                      # Gradio UI entry point
+├── .env / .env.example        # Environment configuration
+├── .gitignore                 # Git ignore patterns
+├── CLAUDE.md                  # AI assistant guidance
+├── README.md                  # Project README
+│
+├── backend/                   # Backend application (monorepo structure)
+│   ├── app/
+│   │   ├── agents/           # AI agents
+│   │   │   ├── planner_agent.py      # Search strategy planner
+│   │   │   ├── search_agent.py       # Web search executor
+│   │   │   ├── writer_agent.py       # Report synthesizer
+│   │   │   ├── email_agent.py        # Email delivery
+│   │   │   └── clarifying_agent.py   # Query clarification
+│   │   ├── api/              # API layer (prepared for FastAPI)
+│   │   │   └── routes/
+│   │   ├── core/             # Core business logic
+│   │   │   ├── orchestrator.py       # ResearchManager
+│   │   │   ├── types.py              # ResearchMode enum
+│   │   │   ├── confidence.py         # Confidence scoring
+│   │   │   ├── retry.py              # Retry logic
+│   │   │   └── monitoring.py         # Performance tracking
+│   │   ├── data/             # Database layer
+│   │   │   ├── db.py                 # SQLite CRUD
+│   │   │   └── migrations/
+│   │   ├── search/           # Search integrations (future)
+│   │   └── workers/          # Background tasks (future)
+│   ├── tests/                # Test suite
+│   └── requirements.txt      # Python dependencies
+│
+├── data/                     # Local data storage (gitignored)
+│   └── research.db          # SQLite database
+│
+├── docs/                     # Documentation
+│   ├── project_spec.md      # Full specifications
+│   ├── architecture.md      # This file
+│   ├── changelog.md         # Version history
+│   └── project_status.md    # Development progress
+│
+└── exports/                  # Exported reports (gitignored)
 ```
 
 ---
@@ -43,21 +69,24 @@ DeepTrace/
 ### Research Pipeline
 
 ```
-User Query
+User Query (via app.py Gradio UI)
     ↓
 ┌─────────────────────────────────────────┐
 │ ResearchManager.run()                   │
+│ (backend/app/core/orchestrator.py)     │
 │ (Async generator - yields UI updates)  │
 └─────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────┐
 │ 1. Planner Agent                        │
+│    (backend/app/agents/planner_agent.py)│
 │    Input: User query                    │
-│    Output: WebSearchPlan (3 searches)   │
+│    Output: WebSearchPlan (4-14 searches)│
 └─────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────┐
 │ 2. Search Agent (Parallel Execution)    │
+│    (backend/app/agents/search_agent.py) │
 │    Input: WebSearchItem[]               │
 │    Uses: WebSearchTool                  │
 │    Output: Summary[] (2-3 para each)    │
@@ -65,15 +94,26 @@ User Query
     ↓
 ┌─────────────────────────────────────────┐
 │ 3. Writer Agent                         │
+│    (backend/app/agents/writer_agent.py) │
 │    Input: Query + Summaries             │
-│    Output: ReportData (markdown)        │
-│    - short_summary                      │
-│    - markdown_report (5-10 pages)       │
+│    Output: ReportData (11 fields)       │
+│    - summary, goals, methodology        │
+│    - findings, competitors, risks       │
+│    - opportunities, recommendations     │
+│    - confidence_score, markdown_report  │
 │    - follow_up_questions                │
 └─────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────┐
-│ 4. Email Agent (Optional)               │
+│ 4. Database Persistence                 │
+│    (backend/app/data/db.py)             │
+│    Saves: Report, Sources, Logs         │
+│    Storage: data/research.db (SQLite)   │
+└─────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────┐
+│ 5. Email Agent (Optional)               │
+│    (backend/app/agents/email_agent.py)  │
 │    Input: Markdown report               │
 │    Output: HTML email via SendGrid      │
 │    (Skipped if SENDGRID_API_KEY unset)  │

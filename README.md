@@ -1,14 +1,18 @@
 # DeepTrace
 
-DeepTrace is a small "deep research" app built on the OpenAI Agents SDK. It plans a few web searches, summarizes results, writes a long-form Markdown report, and (optionally) emails the report via SendGrid. A simple Gradio UI lets you run the flow interactively.
+DeepTrace is a professional AI Research Assistant built on the OpenAI Agents SDK. It intelligently plans web searches, synthesizes information from multiple sources, and produces comprehensive Markdown reports. The system features dual research modes (Quick and Deep), database persistence, and optional email delivery.
 
-## What it does
+## Features
 
-- Plans a short search strategy from your query (`planner_agent.py`)
-- Runs web searches and summarizes each result (`search_agent.py`)
-- Synthesizes a detailed Markdown report (`writer_agent.py`)
-- Optionally emails the report if SendGrid is configured (`email_agent.py`)
-- Prints an OpenAI trace link for each run (`research_manager.py`)
+- **Multi-Agent System**: Orchestrated workflow with specialized AI agents
+- **Dual Research Modes**: Quick (4-6 sources, ~2 min) or Deep (10-14 sources, ~8 min)
+- **Smart Planning**: Mode-aware search strategy generation (`backend/app/agents/planner_agent.py`)
+- **Parallel Search**: Concurrent web searches with result summarization (`backend/app/agents/search_agent.py`)
+- **Report Synthesis**: Structured 11-field reports with confidence scoring (`backend/app/agents/writer_agent.py`)
+- **Database Persistence**: SQLite storage for reports, sources, and logs (`backend/app/data/db.py`)
+- **Export Options**: Markdown file export and optional email delivery (`backend/app/agents/email_agent.py`)
+- **Query Clarification**: Automatic detection of vague queries with clarifying questions (`backend/app/agents/clarifying_agent.py`)
+- **Gradio UI**: Interactive web interface with live execution logs
 
 ## Requirements
 
@@ -34,7 +38,7 @@ DeepTrace is a small "deep research" app built on the OpenAI Agents SDK. It plan
 
 2. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install -r backend/requirements.txt
    ```
 
 3. Configure environment variables:
@@ -48,10 +52,10 @@ DeepTrace is a small "deep research" app built on the OpenAI Agents SDK. It plan
 Start the Gradio UI:
 
 ```bash
-python deep_research.py
+python app.py
 ```
 
-This launches Gradio and opens a browser window (`inbrowser=True`). As the run progresses, the UI updates with status messages and finally the generated Markdown report.
+This launches Gradio and opens a browser window (`inbrowser=True`). Select your research mode (Quick or Deep), enter your query, and click Run. The UI updates with live execution logs and displays the final Markdown report. Use the Export button to save reports as `.md` files in the `exports/` directory.
 
 ## Email (optional)
 
@@ -64,15 +68,74 @@ To enable email sending, set:
 - `SENDGRID_TO`
 - `SENDGRID_DEFAULT_SUBJECT` (optional)
 
-## Project layout
+## Project Structure
 
-- `deep_research.py` — Gradio UI entrypoint
-- `research_manager.py` — Orchestrates plan → search → write → email; yields UI updates
-- `planner_agent.py` — Produces a small `WebSearchPlan` (default: 3 searches)
-- `search_agent.py` — Uses `WebSearchTool` to retrieve and summarize results
-- `writer_agent.py` — Produces `ReportData` including the final Markdown report
-- `email_agent.py` — Converts the report to HTML and sends via SendGrid
+```
+DeepTrace/
+├── app.py                      # Gradio UI entry point
+├── .env.example               # Environment variables template
+├── CLAUDE.md                  # AI assistant instructions
+├── README.md                  # This file
+│
+├── backend/                   # Backend application
+│   ├── app/
+│   │   ├── agents/           # AI agents
+│   │   │   ├── planner_agent.py      # Search strategy planner
+│   │   │   ├── search_agent.py       # Web search executor
+│   │   │   ├── writer_agent.py       # Report synthesizer
+│   │   │   ├── email_agent.py        # Email delivery
+│   │   │   └── clarifying_agent.py   # Query clarification
+│   │   ├── core/             # Core business logic
+│   │   │   ├── orchestrator.py       # ResearchManager orchestration
+│   │   │   ├── types.py              # ResearchMode enum & config
+│   │   │   ├── confidence.py         # Confidence scoring
+│   │   │   ├── retry.py              # Retry logic with backoff
+│   │   │   └── monitoring.py         # Performance tracking
+│   │   └── data/             # Database layer
+│   │       └── db.py                 # SQLite CRUD operations
+│   ├── tests/                # Test suite
+│   └── requirements.txt      # Python dependencies
+│
+├── data/                     # Local data storage (gitignored)
+│   └── research.db          # SQLite database
+│
+├── docs/                     # Documentation
+│   ├── project_spec.md      # Full project specifications
+│   ├── architecture.md      # System design
+│   └── ...                  # Additional docs
+│
+└── exports/                  # Exported reports (gitignored)
+```
+
+## Architecture
+
+DeepTrace follows a **multi-agent architecture** with clear separation of concerns:
+
+1. **Orchestration Layer** (`backend/app/core/orchestrator.py`)
+   - Manages the research pipeline
+   - Handles retries, errors, and partial results
+   - Provides live status updates to UI
+
+2. **Agent Layer** (`backend/app/agents/`)
+   - Specialized AI agents for each task
+   - Stateless and composable
+   - Uses OpenAI Agents SDK
+
+3. **Data Layer** (`backend/app/data/`)
+   - SQLite persistence (PostgreSQL-ready)
+   - Stores reports, sources, and execution logs
+   - Migration-ready for production scaling
+
+See [`docs/architecture.md`](docs/architecture.md) for detailed system design and [`docs/project_spec.md`](docs/project_spec.md) for full specifications.
+
+## Development
+
+- **Documentation**: See [`CLAUDE.md`](CLAUDE.md) for development guidelines and agent instructions
+- **Testing**: Run tests from `backend/tests/` directory
 
 ## Notes
 
-- `.env` is gitignored; keep keys out of source control.
+- `.env` is gitignored; keep API keys out of source control
+- Database files in `data/` are gitignored
+- Exported reports in `exports/` are gitignored
+- OpenAI trace links printed to console for debugging: `https://platform.openai.com/traces/trace?trace_id={trace_id}`

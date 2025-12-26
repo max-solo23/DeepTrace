@@ -9,9 +9,9 @@ Tests:
 """
 
 import asyncio
-from backend.core import calculate_confidence, get_confidence_label
-from writer_agent import ReportData
-from clarifying_agent import ClarificationResult
+from backend.app.core import calculate_confidence, get_confidence_label
+from backend.app.agents.writer_agent import ReportData
+from backend.app.agents.clarifying_agent import ClarificationResult
 
 
 def test_confidence_scoring():

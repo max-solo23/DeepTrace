@@ -6,7 +6,7 @@ This script validates:
 3. Mode configuration retrieval
 """
 
-from backend.core import (
+from backend.app.core import (
     ResearchMode,
     MODE_CONFIG,
     get_mode_config,
