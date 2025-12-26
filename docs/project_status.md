@@ -27,6 +27,8 @@
 - [x] Gradio web interface
   - [x] Research mode selector (Quick vs Deep)
   - [x] Status updates during execution
+  - [x] Stop button for cancelling research
+  - [x] Export button for markdown download
 - [x] Async pipeline with UI status updates
 - [x] Structured outputs (Pydantic models)
 - [x] OpenAI trace link generation
@@ -36,6 +38,7 @@
   - [x] Partial results handling
   - [x] Error report generation
   - [x] Never crashes completely
+  - [x] ErrorReportGenerator for structured error responses
 - [x] Optional email delivery (SendGrid)
 - [x] **SQLite database persistence**
   - [x] Reports table (11 columns)
@@ -44,6 +47,8 @@
   - [x] PostgreSQL migration compatibility
   - [x] Complete CRUD operations
   - [x] Comprehensive test suite
+  - [x] Integrated into research pipeline with safe error handling
+  - [x] DatabasePersistence wrapper class
 - [x] **Confidence scoring system**
   - [x] Algorithm with base + source + quality + consistency
   - [x] Human-readable labels (Low to High)
@@ -53,6 +58,25 @@
   - [x] Performance tracking against targets
   - [x] Mode-aware planner agent
   - [x] UI mode selector
+- [x] **Live execution logging and status streaming**
+  - [x] StatusReporter class for real-time updates
+  - [x] Phase-specific status messages (planning, searching, writing)
+  - [x] Real-time search progress counters
+  - [x] Markdown-formatted progress log with emojis
+  - [x] Shows search plan with reasoning
+  - [x] Confidence score display on completion
+  - [x] Database and email status updates
+- [x] **Stop button and graceful cancellation**
+  - [x] User-initiated research cancellation
+  - [x] Multiple checkpoints throughout pipeline
+  - [x] Graceful cleanup of pending tasks
+  - [x] Partial results display when stopped
+  - [x] Results not saved to database when stopped
+- [x] **Manual report export**
+  - [x] Markdown file download functionality
+  - [x] Export to `exports/` directory
+  - [x] Timestamped filenames with query slug
+  - [x] Gradio File component integration
 - [x] **Comprehensive documentation infrastructure**
   - [x] `architecture.md` - System design and data flow
   - [x] `changelog.md` - Version history
@@ -65,19 +89,13 @@
 
 ### 🚧 In Progress
 
-- [ ] Integration of database persistence into research pipeline
-- [ ] Live execution logging to UI
-- [ ] UI enhancements (stop/reset buttons, progress indicators)
+*No features currently in progress*
 
 ### 📋 Planned (Phase 1 - MVP Core)
 
-- [ ] Stop button (hard kill)
 - [ ] Reset button (wipe state + UI)
-- [ ] Search depth selector
-- [ ] Quick vs Deep mode behavior
-- [ ] Manual export controls (markdown download)
-- [ ] Partial results logic
-- [ ] Clarifying questions (vague queries)
+- [ ] Search history browsing
+- [ ] Clarifying questions workflow UI integration
 
 ---
 
@@ -116,10 +134,15 @@
   - ✅ Never crashes completely
 
 **Remaining for Full MVP**:
-1. Wire database into research pipeline (integration)
-2. Add live logs to UI
-3. Implement stop + reset controls
-4. Add manual export (markdown download button)
+1. ✅ Wire database into research pipeline (integration) - COMPLETE
+2. ✅ Add live logs to UI - COMPLETE
+3. ✅ Implement stop button - COMPLETE (reset button still pending)
+4. ✅ Add manual export (markdown download button) - COMPLETE
+
+**Outstanding MVP Tasks**:
+1. Reset button (wipe state + UI)
+2. Search history browsing UI
+3. Clarifying questions workflow UI integration
 
 **Completed**: 2025-12-26
 
@@ -196,20 +219,15 @@
 ## Known Issues
 
 ### High Priority
-- No persistence - all research lost on restart
-- No stop/cancel mechanism - runs to completion
-- No live logs - minimal UI feedback during execution
+- No reset button (must restart application to wipe state)
+- No search history browsing UI
 
 ### Medium Priority
-- No confidence scoring
-- Fixed 3 searches (no mode selection)
-- No partial results handling
+- Clarifying questions workflow not integrated into UI
 - Email failures not retry-attempted
 
 ### Low Priority
-- No progress indicators
-- No research history browsing
-- No export options (email only)
+- No user setting persistence across sessions
 
 ---
 
@@ -232,6 +250,48 @@
 ---
 
 ## Recent Changes
+
+**2025-12-26 - Phase 2 UI Integration Complete** ✅:
+- ✅ **Live Execution Logging and Status Streaming**:
+  - Created `backend/app/core/status_reporter.py` (200 lines)
+  - StatusReporter class for real-time progress updates
+  - Phase-specific status messages (starting, planning, searching, writing)
+  - Markdown-formatted progress log with emojis
+  - Shows search plan with reasoning for each search
+  - Real-time search progress counters (completed/total, successful/failed)
+  - Confidence score display on completion
+  - Database save status and email delivery status
+  - Integrated throughout orchestrator.py with yield statements
+- ✅ **Stop Button and Graceful Cancellation**:
+  - UI stop button in app.py
+  - ResearchManager.request_stop() method for stop signaling
+  - Multiple checkpoints throughout pipeline (6 checkpoints)
+  - Graceful cleanup of pending search tasks on cancellation
+  - Handles asyncio.CancelledError with partial results display
+  - Status reporter shows "Stopped by User" message
+  - Results not saved to database when stopped
+- ✅ **Manual Report Export**:
+  - Export button in UI with Gradio File component
+  - export_report() function saves to exports/ directory
+  - Timestamped filenames with sanitized query slug
+  - Automatic exports directory creation
+- ✅ **Error Handling and Recovery System**:
+  - Created `backend/app/core/error_handling.py` (164 lines)
+  - ErrorReportGenerator class for structured error reports
+  - Separate methods for planning, search, writing, and unexpected failures
+  - Always returns valid ReportData even on complete failure
+  - Includes partial results when available
+  - Provides actionable recommendations for users
+- ✅ **Database Integration**:
+  - Created `backend/app/core/persistence.py` (91 lines)
+  - DatabasePersistence class for safe database operations
+  - save_report_safely() with comprehensive error handling
+  - Integrated into orchestrator.py after report generation
+  - Research continues even if database save fails
+- ✅ **Documentation Updates**:
+  - Updated changelog.md with all implemented features
+  - Updated CLAUDE.md with new module descriptions
+  - Updated project_status.md to reflect completion
 
 **2025-12-26 - Major Project Restructuring** ✅:
 - ✅ **Monorepo Structure Implementation**:

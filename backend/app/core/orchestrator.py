@@ -7,11 +7,14 @@ from backend.app.core import (
     ResearchMode,
     validate_source_count,
     PerformanceTracker,
-    retry_with_backoff,
     calculate_confidence,
     get_confidence_label,
 )
-from backend.app.data import init_db, save_report
+from backend.app.core.retry import retry_with_backoff, get_retry_config
+from backend.app.core.status_reporter import StatusReporter
+from backend.app.core.error_handling import ErrorReportGenerator
+from backend.app.core.persistence import DatabasePersistence
+from backend.app.data import init_db
 import asyncio
 import os
 import logging
@@ -75,9 +78,6 @@ class ResearchManager:
         tracker = PerformanceTracker(mode)
         tracker.start()
 
-        # Accumulate status messages for running log
-        status_log = []
-
         trace_id = gen_trace_id()
 
         try:
@@ -85,18 +85,10 @@ class ResearchManager:
                 trace_url = f"https://platform.openai.com/traces/trace?trace_id={trace_id}"
                 print(f"View trace: {trace_url}")
 
-                # Build header with trace link
-                header = f"""# 🔬 Deep Research - {mode.value.upper()} Mode
-
-**OpenAI Trace:** [View detailed agent trace]({trace_url})
-
----
-
-## 📊 Progress Log
-
-"""
-                status_log.append("🚀 **Starting research...**")
-                yield header + "\n".join(status_log)
+                # Initialize status reporter
+                status_reporter = StatusReporter(mode, trace_url)
+                status_reporter.add_starting()
+                yield status_reporter.get_current_status()
 
                 logger.info(f"Starting research for query: {query} in {mode.value.upper()} mode")
                 print(f"[RESEARCH] Starting research in {mode.value.upper()} mode...")
@@ -105,8 +97,8 @@ class ResearchManager:
                 self._check_if_stopped()
 
                 # Planning phase with retry
-                status_log.append("🧠 **Planning searches...**")
-                yield header + "\n".join(status_log)
+                status_reporter.add_planning_start()
+                yield status_reporter.get_current_status()
 
                 tracker.start_planning()
                 search_plan = await self._plan_searches_with_retry(query, mode)
@@ -115,36 +107,22 @@ class ResearchManager:
                 if search_plan is None:
                     # Planning failed completely - return error report
                     logger.error("Planning failed after retries")
-                    status_log.append("❌ **Planning failed after retries**")
-                    yield header + "\n".join(status_log)
-                    error_report = self._create_error_report(
-                        query,
-                        "Failed to plan research searches",
-                        []
-                    )
+                    status_reporter.add_error("Planning failed after retries")
+                    yield status_reporter.get_current_status()
+                    error_report = ErrorReportGenerator.create_planning_failure_report(query)
                     yield error_report.markdown_report
                     return
 
                 # Show the planned searches with reasoning
-                status_log.append(f"✅ **Planning complete** - {len(search_plan.searches)} searches planned")
-                status_log.append("")
-                status_log.append("### 📋 Search Plan:")
-                status_log.append("")
-                for i, search_item in enumerate(search_plan.searches, 1):
-                    status_log.append(f"**{i}. {search_item.query}**")
-                    status_log.append(f"   *Reason:* {search_item.reason}")
-                    status_log.append("")
-                status_log.append("---")
-                status_log.append("")
-                yield header + "\n".join(status_log)
+                status_reporter.add_planning_complete(len(search_plan.searches), search_plan.searches)
+                yield status_reporter.get_current_status()
 
                 # CHECKPOINT: After planning, before searching
                 self._check_if_stopped()
 
                 # Search phase with partial results handling
-                status_log.append("🔍 **Starting searches...**")
-                status_log.append("")
-                yield header + "\n".join(status_log)
+                status_reporter.add_search_start()
+                yield status_reporter.get_current_status()
 
                 tracker.start_searching()
 
@@ -167,15 +145,15 @@ class ResearchManager:
                         if result is not None:
                             search_results.append(result)
                             logger.info(f"Search successful (total successful: {len(search_results)})")
-                            status_log.append(f"   ✓ Search {num_completed}/{num_searches} completed - {len(search_results)} successful so far")
+                            status_reporter.add_search_progress(num_completed, num_searches, len(search_results), True)
                         else:
                             logger.warning("Search failed after retries")
-                            status_log.append(f"   ✗ Search {num_completed}/{num_searches} failed")
+                            status_reporter.add_search_progress(num_completed, num_searches, len(search_results), False)
 
                         print(f"[SEARCH] Progress: {num_completed}/{len(tasks)} completed ({len(search_results)} successful)")
 
                         # Yield updated status after each search completes
-                        yield header + "\n".join(status_log)
+                        yield status_reporter.get_current_status()
 
                 except asyncio.CancelledError:
                     # Stop requested - cancel all pending tasks to prevent resource leaks
@@ -193,29 +171,21 @@ class ResearchManager:
                 if not search_results:
                     # No searches succeeded - return error report
                     logger.error("All searches failed")
-                    status_log.append("❌ **All searches failed**")
-                    yield header + "\n".join(status_log)
-                    error_report = self._create_error_report(
-                        query,
-                        "All search attempts failed",
-                        []
-                    )
+                    status_reporter.add_error("All searches failed")
+                    yield status_reporter.get_current_status()
+                    error_report = ErrorReportGenerator.create_search_failure_report(query)
                     yield error_report.markdown_report
                     return
 
-                status_log.append("")
-                status_log.append(f"✅ **Searches complete** - {len(search_results)}/{len(search_plan.searches)} successful")
-                status_log.append("")
-                status_log.append("---")
-                status_log.append("")
-                yield header + "\n".join(status_log)
+                status_reporter.add_search_complete(len(search_results), len(search_plan.searches))
+                yield status_reporter.get_current_status()
 
                 # CHECKPOINT: After searching, before writing
                 self._check_if_stopped()
 
                 # Writing phase with retry
-                status_log.append("✍️ **Writing comprehensive report...**")
-                yield header + "\n".join(status_log)
+                status_reporter.add_writing_start()
+                yield status_reporter.get_current_status()
 
                 tracker.start_writing()
                 report = await self._write_report_with_retry(query, search_results)
@@ -224,13 +194,9 @@ class ResearchManager:
                 if report is None:
                     # Report generation failed - return structured error
                     logger.error("Report generation failed after retries")
-                    status_log.append("❌ **Report generation failed after retries**")
-                    yield header + "\n".join(status_log)
-                    error_report = self._create_error_report(
-                        query,
-                        "Failed to generate structured report",
-                        search_results
-                    )
+                    status_reporter.add_error("Report generation failed after retries")
+                    yield status_reporter.get_current_status()
+                    error_report = ErrorReportGenerator.create_writing_failure_report(query, search_results)
                     yield error_report.markdown_report
                     return
 
@@ -242,69 +208,42 @@ class ResearchManager:
                 confidence_label = get_confidence_label(report.confidence_score)
 
                 logger.info(f"Report completed with confidence: {confidence_label} ({report.confidence_score:.2f})")
-                status_log.append(f"✅ **Report complete** - Confidence: {confidence_label} ({report.confidence_score:.2f})")
-                status_log.append("")
-                yield header + "\n".join(status_log)
+                status_reporter.add_writing_complete(report.confidence_score, confidence_label)
+                yield status_reporter.get_current_status()
 
                 # CHECKPOINT: After writing, before database save
                 self._check_if_stopped()
 
                 # Save to database
-                status_log.append("💾 **Saving to database...**")
-                yield header + "\n".join(status_log)
+                db_persistence = DatabasePersistence(logger)
+                report_id = db_persistence.save_report_safely(query, mode, report, status_reporter)
 
-                report_id = None
-                try:
-                    # Convert ReportData to dictionary for database
-                    report_dict = {
-                        "query": query,
-                        "mode": mode.value,  # "quick" or "deep"
-                        "summary": report.summary,
-                        "goals": report.goals,
-                        "methodology": report.methodology,
-                        "findings": report.findings,
-                        "competitors": report.competitors,
-                        "risks": report.risks,
-                        "opportunities": report.opportunities,
-                        "recommendations": report.recommendations,
-                        "confidence_score": report.confidence_score,
-                    }
+                if report_id:
+                    status_reporter.add_database_saved(report_id)
+                else:
+                    status_reporter.add_database_error("Database error")
 
-                    report_id = save_report(report_dict)
-                    logger.info(f"Report saved to database with ID: {report_id}")
-                    status_log.append(f"✅ **Saved to database** - Report ID: {report_id[:8]}...")
-                    yield header + "\n".join(status_log)
-
-                except Exception as db_error:
-                    # Log error but don't fail the research
-                    logger.error(f"Failed to save report to database: {type(db_error).__name__}: {str(db_error)}")
-                    status_log.append(f"⚠️ **Database save failed** - {type(db_error).__name__}")
-                    status_log.append("   *(Report still available but not persisted)*")
-                    yield header + "\n".join(status_log)
+                yield status_reporter.get_current_status()
 
                 # CHECKPOINT: After database, before email
                 self._check_if_stopped()
 
                 # Email phase (optional, failure doesn't block)
                 if os.environ.get("SENDGRID_API_KEY"):
-                    status_log.append("📧 **Sending email...**")
-                    yield header + "\n".join(status_log)
+                    status_reporter.add_email_sending()
+                    yield status_reporter.get_current_status()
 
                 email_sent, email_messages = await self.send_email(report)
                 if email_sent:
-                    status_log.append("✅ **Email sent successfully**")
+                    status_reporter.add_email_success()
                 elif os.environ.get("SENDGRID_API_KEY"):
-                    status_log.append("⚠️ **Email failed** (check configuration)")
+                    status_reporter.add_email_failure()
 
                 # Complete performance tracking
                 tracker.end()
 
-                status_log.append("")
-                status_log.append("---")
-                status_log.append("")
-                status_log.append("## ✨ Research Complete!")
-                status_log.append("")
-                yield header + "\n".join(status_log)
+                status_reporter.add_completion()
+                yield status_reporter.get_current_status()
 
                 # Final yield: show the full report
                 yield report.markdown_report
@@ -312,13 +251,8 @@ class ResearchManager:
         except asyncio.CancelledError:
             # User requested stop - return gracefully with partial results
             logger.info("Research cancelled by user request - showing partial results")
-            status_log.append("")
-            status_log.append("---")
-            status_log.append("")
-            status_log.append("## ⚠️ Research Stopped by User")
-            status_log.append("")
-            status_log.append("Partial results shown above (if any). Results not saved to database.")
-            yield header + "\n".join(status_log)
+            status_reporter.add_stopped_by_user()
+            yield status_reporter.get_current_status()
             return
 
         except Exception as exc:
@@ -327,11 +261,7 @@ class ResearchManager:
             yield f"Unexpected error occurred: {type(exc).__name__}"
 
             # Return a graceful error report
-            error_report = self._create_error_report(
-                query,
-                f"Unexpected system error: {type(exc).__name__}",
-                []
-            )
+            error_report = ErrorReportGenerator.create_unexpected_error_report(query, exc)
             yield error_report.markdown_report
 
     async def send_email(self, report: ReportData) -> tuple[bool, list[str]]:
@@ -398,10 +328,11 @@ class ResearchManager:
 
             return plan
 
+        config = get_retry_config("planning")
         search_plan = await retry_with_backoff(
             _plan,
-            max_attempts=3,
-            base_delay=1.0
+            max_attempts=config.max_attempts,
+            base_delay=config.base_delay
         )
 
         if search_plan:
@@ -429,10 +360,11 @@ class ResearchManager:
             )
             return str(result.final_output)
 
+        config = get_retry_config("search")
         return await retry_with_backoff(
             _search,
-            max_attempts=2,  # Fewer retries for individual searches
-            base_delay=0.5
+            max_attempts=config.max_attempts,
+            base_delay=config.base_delay
         )
 
     async def _write_report_with_retry(self, query: str, search_results: list[str]) -> ReportData | None:
@@ -457,10 +389,11 @@ class ResearchManager:
             )
             return result.final_output_as(ReportData)
 
+        config = get_retry_config("writing")
         report = await retry_with_backoff(
             _write,
-            max_attempts=3,
-            base_delay=1.0
+            max_attempts=config.max_attempts,
+            base_delay=config.base_delay
         )
 
         if report:
@@ -471,85 +404,3 @@ class ResearchManager:
             print("[WRITER] Failed to write report")
 
         return report
-
-    def _create_error_report(
-        self,
-        query: str,
-        error_message: str,
-        partial_results: list[str]
-    ) -> ReportData:
-        """
-        Create a structured error report when pipeline fails.
-
-        This ensures we ALWAYS return something useful, even on failure.
-
-        Args:
-            query: The original query
-            error_message: Description of what went wrong
-            partial_results: Any search results that were retrieved
-
-        Returns:
-            ReportData with error information and partial results
-        """
-        logger.info(f"Creating error report: {error_message}")
-
-        # Build partial findings if we have any results
-        findings_text = "[Error occurred during research]\n\n"
-        if partial_results:
-            findings_text += "**Partial Results Retrieved:**\n\n"
-            for i, result in enumerate(partial_results, 1):
-                findings_text += f"{i}. {result}\n\n"
-        else:
-            findings_text += "No search results were retrieved before the error occurred."
-
-        markdown_report = f"""# Research Report: {query}
-
-## Error Notice
-
-**Status:** Research pipeline encountered an error
-**Error:** {error_message}
-**Partial Results:** {'Yes' if partial_results else 'No'}
-
----
-
-## Summary
-
-This research attempt was unable to complete successfully due to a system error. {'Some partial results were retrieved and are included below.' if partial_results else 'No results were retrieved.'}
-
----
-
-## Findings
-
-{findings_text}
-
----
-
-## Recommendations
-
-- Retry the research query
-- Simplify the query if it was complex
-- Check system logs for detailed error information
-- Contact support if the issue persists
-
----
-
-*This is an automatically generated error report. The research pipeline failed gracefully to provide this structured output.*
-"""
-
-        return ReportData(
-            summary=f"Research failed: {error_message}",
-            goals=f"Attempted to research: {query}",
-            methodology="Research pipeline encountered an error before completion",
-            findings=findings_text,
-            competitors="[Information not available due to error]",
-            risks="System error prevented complete research execution",
-            opportunities="Retry may succeed; consider query refinement",
-            recommendations="Retry the query or contact support",
-            confidence_score=0.0,
-            markdown_report=markdown_report,
-            follow_up_questions=[
-                "Should the query be rephrased or simplified?",
-                "Are there system issues affecting research execution?",
-                "Would breaking the query into smaller parts help?"
-            ]
-        )

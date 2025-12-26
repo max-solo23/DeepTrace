@@ -94,6 +94,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Performance tracking integrated
 - Validation test script (`test_modes.py`)
 
+**Live Execution Logging and Status Updates**
+- Real-time status streaming to UI during research execution
+- New module: `backend/app/core/status_reporter.py` (200 lines)
+  - StatusReporter class for managing streaming status updates
+  - Phase-specific status methods (starting, planning, searching, writing, completion)
+  - Markdown-formatted progress log with emojis and formatting
+  - Shows search plan with reasoning for each search
+  - Real-time search progress counters (completed/total, successful/failed)
+  - Confidence score display on completion
+  - Database save status and email delivery status
+  - User-friendly error messages
+- Integration throughout orchestrator.py with yield statements
+  - Status updates after each major phase
+  - Progress updates after each search completes
+  - Final completion or error status
+
+**Stop Button and Cancellation**
+- User-initiated research cancellation with graceful shutdown
+- UI stop button in app.py
+- `ResearchManager.request_stop()` method for stop signaling
+- Multiple checkpoints throughout pipeline (before planning, searching, writing, database, email)
+- `_check_if_stopped()` validation at each checkpoint
+- Graceful cleanup of pending search tasks on cancellation
+- Handles `asyncio.CancelledError` with partial results display
+- Status reporter shows "Stopped by User" message
+- Results not saved to database when stopped
+
+**Manual Report Export**
+- Markdown file download functionality
+- Export button in UI (app.py)
+- `export_report()` function that saves to `exports/` directory
+- Timestamped filenames with sanitized query slug
+- Automatic exports directory creation
+- Gradio File component for download
+- Stores last generated report for export access
+
+**Error Handling and Recovery**
+- New module: `backend/app/core/error_handling.py` (164 lines)
+  - ErrorReportGenerator class for structured error reports
+  - Separate error report methods for each failure type:
+    - Planning failures
+    - Search failures (all searches failed)
+    - Writing failures
+    - Unexpected system errors
+  - Always returns valid ReportData even on complete failure
+  - Includes partial results when available
+  - Provides actionable recommendations for users
+- Integration throughout orchestrator.py
+  - Planning failures return error report instead of crashing
+  - All searches failing returns error report with guidance
+  - Writing failures return error report with partial search results
+  - Unexpected exceptions caught and converted to error reports
+
+**Database Integration**
+- New module: `backend/app/core/persistence.py` (91 lines)
+  - DatabasePersistence class for safe database operations
+  - `save_report_safely()` method with comprehensive error handling
+  - Converts ReportData to database-compatible dictionary
+  - Logs errors but doesn't block research completion on DB failures
+  - Status reporter integration for user feedback
+- Integrated into orchestrator.py after report generation
+  - Saves report with query, mode, and all 11 fields
+  - Returns report ID on success
+  - Gracefully handles database failures
+  - Research continues even if database save fails
+
 **Documentation**
 - Complete implementation summaries for all three components
 - Migration guides and integration instructions
@@ -116,15 +182,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Removed 12 duplicate specification files
 - Streamlined CLAUDE.md to focus on behavioral rules and current implementation
 - Established clear documentation update workflow
-
-### Planned
-- Live execution logs in UI
-- Stop button (hard kill)
-- Reset button (wipe state)
-- Integration of database persistence into pipeline
-- Wire up confidence scoring in UI
-- Partial results handling in UI
-- Clarifying questions workflow
 
 ---
 

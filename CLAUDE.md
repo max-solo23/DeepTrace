@@ -170,6 +170,9 @@ Orchestrated by `ResearchManager.run()` (async generator that yields status upda
 - `confidence.py` - Confidence scoring algorithm
 - `retry.py` - Retry logic with exponential backoff
 - `monitoring.py` - Performance tracking
+- `status_reporter.py` - Live status streaming to UI with real-time progress updates
+- `error_handling.py` - Error report generation for graceful failure handling
+- `persistence.py` - Database persistence wrapper with safe error handling
 - `__init__.py` - Public API exports
 
 **`backend/app/data/`** - Database persistence layer:
@@ -202,6 +205,9 @@ backend/                # Backend application (follows project_spec.md structure
       confidence.py         # Confidence scoring algorithm
       retry.py              # Retry logic with exponential backoff
       monitoring.py         # Performance tracking
+      status_reporter.py    # Live status streaming to UI
+      error_handling.py     # Error report generation
+      persistence.py        # Database persistence wrapper
       __init__.py           # Exports: ResearchMode, confidence, retry, etc.
     data/               # Database persistence layer
       db.py                 # SQLite CRUD operations (PostgreSQL-compatible)

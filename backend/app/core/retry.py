@@ -9,12 +9,43 @@ import asyncio
 import logging
 from typing import TypeVar, Callable, Any, Optional
 from functools import wraps
+from dataclasses import dataclass
 
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+
+
+@dataclass(frozen=True)
+class RetryConfig:
+    """Configuration for retry behavior."""
+    max_attempts: int
+    base_delay: float
+    max_delay: float = 10.0
+    exponential_base: float = 2.0
+
+
+# Predefined retry configurations for different operations
+RETRY_CONFIGS = {
+    "planning": RetryConfig(max_attempts=3, base_delay=1.0),
+    "search": RetryConfig(max_attempts=2, base_delay=0.5),
+    "writing": RetryConfig(max_attempts=3, base_delay=1.0),
+}
+
+
+def get_retry_config(operation: str) -> RetryConfig:
+    """
+    Get retry configuration for an operation type.
+
+    Args:
+        operation: Operation type ("planning", "search", "writing")
+
+    Returns:
+        RetryConfig for the operation, or default config if not found
+    """
+    return RETRY_CONFIGS.get(operation, RetryConfig(max_attempts=3, base_delay=1.0))
 
 
 async def retry_with_backoff(
