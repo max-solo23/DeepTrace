@@ -8,6 +8,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added - 2025-12-26
+
+**UI Configuration Panel and Runtime Settings**
+- Added collapsible Configuration accordion (⚙️ Configuration) in Gradio UI
+- **API Key Management:**
+  - OpenAI API Key input field (always visible, required)
+  - Serper API Key input field (conditional, shows when Serper selected)
+  - SendGrid API Key input field (conditional, shows when email enabled)
+  - All API key fields use `type="password"` for security
+  - Fields pre-populate from `.env` environment variables
+- **Web Search Provider Selection:**
+  - Radio button selector: OpenAI (default) or Serper
+  - Sets `SEARCH_PROVIDER` environment variable for future search agent integration
+  - Serper API key field appears/disappears based on selection
+- **Email Delivery Toggle:**
+  - Checkbox to enable/disable email sending (default: OFF)
+  - When disabled, automatically clears `SENDGRID_API_KEY` to prevent email sending
+  - When enabled, shows SendGrid API Key, From Email, and To Email fields
+  - All SendGrid fields pre-populate from `.env` if available
+- **Real-time Status Indicator:**
+  - Status textbox shows current execution state
+  - Emoji indicators: 🔄 Running, ✅ Complete, ⚠️ Stopped, ❌ Error
+  - Updates automatically during research execution
+  - Shows "Ready" when idle
+- **Dynamic Environment Variable Management:**
+  - Runtime configuration via UI overrides `.env` settings per-research
+  - Environment variables temporarily set before research starts
+  - Original environment variables restored after completion (in `finally` block)
+  - Supports testing different providers without modifying `.env` file
+- **Updated `.env.example`:**
+  - Added `SERPER_API_KEY` documentation
+  - Clarified optional vs required environment variables
+
 ### Changed - 2025-12-26
 
 **Project Requirements Update**

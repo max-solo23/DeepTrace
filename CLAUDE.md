@@ -259,9 +259,24 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env: set OPENAI_API_KEY (required)
-# Optional: SENDGRID_API_KEY, SENDGRID_FROM, SENDGRID_TO
+# Edit .env with your API keys:
+# - OPENAI_API_KEY (required for AI agents)
+# - SERPER_API_KEY (optional - alternative web search provider)
+# - SENDGRID_API_KEY, SENDGRID_FROM, SENDGRID_TO (optional - for email delivery)
 ```
+
+### Environment Variables
+
+Required for all operations:
+- `OPENAI_API_KEY` - OpenAI API key for AI agents and web search
+
+Optional configurations:
+- `SERPER_API_KEY` - Serper API key (alternative web search provider)
+- `SENDGRID_API_KEY` - SendGrid API key for email delivery
+- `SENDGRID_FROM` - Sender email address (must be verified in SendGrid)
+- `SENDGRID_TO` - Default recipient email address
+
+**Note:** All API keys can also be configured directly in the UI via the Configuration panel.
 
 ### Git Workflow & Repository Etiquette
 
@@ -321,11 +336,44 @@ python app.py
 - Database stored in `data/research.db`
 - Exported reports saved to `exports/` directory
 
+### UI Features
+
+**Main Interface:**
+- Query input field
+- Research mode selector (Quick/Deep)
+- Run/Stop/Export buttons
+- Real-time status indicator with emoji (🔄 Running, ✅ Complete, ⚠️ Stopped, ❌ Error)
+- Live progress log with streaming updates
+- Report viewer with markdown formatting
+
+**Configuration Panel** (⚙️ Configuration accordion):
+- **API Keys:**
+  - OpenAI API Key (required) - pre-filled from `.env`
+  - Serper API Key (conditional) - shows when Serper provider selected
+  - SendGrid API Key (conditional) - shows when email enabled
+
+- **Web Search Provider:**
+  - Radio selector: OpenAI (default) or Serper
+  - Serper key field appears dynamically when selected
+
+- **Email Settings:**
+  - "Send Email Report" checkbox (default: OFF)
+  - SendGrid API Key, From Email, To Email fields appear when enabled
+  - All email fields pre-filled from `.env` if available
+
+**Dynamic Behavior:**
+- API key fields masked with `type="password"`
+- Conditional visibility for Serper and SendGrid fields
+- Environment variables temporarily set per-research run
+- Original env vars restored after completion
+- Status indicator updates in real-time during execution
+
 ### Debugging
 
 - Use OpenAI trace links to debug agent reasoning, tool calls, model interactions
 - Check console logs for pipeline progression
 - Email failures logged but don't block pipeline
+- Status indicator shows current execution state
 
 ---
 
