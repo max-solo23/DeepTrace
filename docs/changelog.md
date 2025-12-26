@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed - 2025-12-26
 
+**Project Requirements Update**
+- Updated Python version requirement to 3.13 or higher
+- Moved `requirements.txt` from `backend/` to project root
+- Updated CLAUDE.md with Python 3.13 requirement and new requirements.txt path
+- Removed 4 unnecessary markdown documentation files from `backend/app/data/`:
+  - README.md, EXAMPLES.md, INTEGRATION.md, QUICKSTART.md
+  - Database documentation belongs in `docs/` folder, not code modules
+
 **Major Project Restructuring**
 - Reorganized entire codebase to match monorepo structure from `project_spec.md`
 - Renamed `deep_research.py` → `app.py` as primary entry point
@@ -22,17 +30,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `backend/app/workers/` - Background tasks (prepared for future)
 - Moved `research_manager.py` → `backend/app/core/orchestrator.py`
 - Moved all test files to `backend/tests/`
-- Moved `requirements.txt` → `backend/requirements.txt`
 - Created `data/` directory for database files (research.db, memory-tool.db)
 - Updated all import paths across Python files to reflect new structure
-- Cleaned up 9 temporary implementation documentation files
+- Cleaned up temporary implementation documentation files
 - Updated `CLAUDE.md` with new file structure and commands
 - Completely rewrote `README.md` with professional description and architecture overview
 - Updated `.gitignore` to exclude `data/` directory
 
 **Breaking Changes**
+- Python 3.13 or higher now required
 - Run command changed: `python deep_research.py` → `python app.py`
-- Install command changed: `pip install -r requirements.txt` → `pip install -r backend/requirements.txt`
+- Install command changed: `pip install -r backend/requirements.txt` → `pip install -r requirements.txt`
 - All imports now reference `backend.app.*` instead of root-level modules
 
 ### Added - 2025-12-26

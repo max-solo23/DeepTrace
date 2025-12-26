@@ -180,6 +180,7 @@ Orchestrated by `ResearchManager.run()` (async generator that yields status upda
 
 ```
 app.py                  # Gradio UI entry point with mode selector
+requirements.txt        # Python dependencies
 .env.example           # Environment template
 .gitignore             # Git ignore patterns
 CLAUDE.md              # This file - Claude Code guidance
@@ -214,7 +215,6 @@ backend/                # Backend application (follows project_spec.md structure
     test_agents.py          # Research modes validation tests
     test_db_integration.py  # Database integration tests
     test_export.py          # Export functionality tests
-  requirements.txt      # Python dependencies
 
 data/                   # Local data storage
   research.db          # SQLite database (gitignored)
@@ -239,16 +239,19 @@ exports/                # Exported research reports (gitignored)
 
 ### Setup
 
+**Requirements:**
+- Python 3.13 or higher
+
 ```bash
 # Windows
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
 # macOS/Linux
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 cp .env.example .env
 # Edit .env: set OPENAI_API_KEY (required)
 # Optional: SENDGRID_API_KEY, SENDGRID_FROM, SENDGRID_TO
