@@ -3,7 +3,7 @@
 from .types import ResearchMode, MODE_CONFIG, get_mode_config, validate_source_count, MAX_SOURCES_ABSOLUTE
 from .monitoring import PerformanceTracker
 from .confidence import calculate_confidence, get_confidence_label
-from .retry import retry_with_backoff, with_retry, retry_with_fallback
+from .retry import retry_with_backoff
 
 __all__ = [
     "ResearchMode",
@@ -15,6 +15,4 @@ __all__ = [
     "calculate_confidence",
     "get_confidence_label",
     "retry_with_backoff",
-    "with_retry",
-    "retry_with_fallback",
 ]

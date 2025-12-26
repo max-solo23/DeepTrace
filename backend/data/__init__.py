@@ -10,11 +10,6 @@ from .db import (
     save_report,
     get_report,
     get_all_reports,
-    save_source,
-    get_sources_for_report,
-    save_log,
-    get_logs_for_report,
-    close_db,
 )
 
 __all__ = [
@@ -22,9 +17,4 @@ __all__ = [
     "save_report",
     "get_report",
     "get_all_reports",
-    "save_source",
-    "get_sources_for_report",
-    "save_log",
-    "get_logs_for_report",
-    "close_db",
 ]
