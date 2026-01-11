@@ -25,12 +25,14 @@ MODE_CONFIG = {
         "min_sources": 4,
         "max_sources": 6,
         "target_time": 120,  # seconds (2 minutes)
+        "search_timeout": 45,
         "description": "Quick research mode with 4-6 sources in ~2 minutes"
     },
     ResearchMode.DEEP: {
         "min_sources": 10,
         "max_sources": 14,
         "target_time": 480,  # seconds (8 minutes)
+        "search_timeout": 60,
         "description": "Deep research mode with 10-14 sources in ~8 minutes"
     }
 }

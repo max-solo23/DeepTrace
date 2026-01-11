@@ -11,6 +11,22 @@ from pathlib import Path
 
 load_dotenv(override=True)
 
+
+def validate_api_key(openai_key: str) -> tuple[bool, str]:
+    """Validate OpenAI API key before starting research.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if not openai_key:
+        return (False, "You must insert an OpenAI API key.")
+
+    if not openai_key.startswith("sk-"):
+        return (False, 'You must insert a valid OpenAI API key (it starts with "sk-").')
+
+    return (True, "")
+
+
 # Store default values from environment
 DEFAULT_OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 DEFAULT_SERPER_KEY = os.environ.get("SERPER_API_KEY", "")
@@ -157,6 +173,38 @@ async def run_with_status(
     except Exception as e:
         # Error occurred
         yield f"❌ Error: {type(e).__name__}", chunk
+
+
+async def run_with_validation(
+    query: str,
+    mode: str,
+    send_email: bool,
+    search_provider: str,
+    openai_key: str,
+    serper_key: str,
+    sendgrid_key: str,
+    sendgrid_from: str,
+    sendgrid_to: str
+):
+    """Validate API key before running research.
+
+    Yields:
+        Tuple of (status, report) for UI updates
+    """
+    # Validate API key first
+    is_valid, error_msg = validate_api_key(openai_key)
+
+    if not is_valid:
+        yield ("❌ API Key Error", error_msg)
+        return
+
+    # If valid, proceed with research
+    async for status, report in run_with_status(
+        query, mode, send_email, search_provider,
+        openai_key, serper_key, sendgrid_key,
+        sendgrid_from, sendgrid_to
+    ):
+        yield status, report
 
 
 def stop_research() -> tuple[str, str]:
@@ -330,9 +378,9 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="sky")) as ui:
         sendgrid_to_input
     ]
 
-    # Run button outputs to both status and report
-    run_button.click(fn=run_with_status, inputs=run_inputs, outputs=[status_box, report])
-    query_textbox.submit(fn=run_with_status, inputs=run_inputs, outputs=[status_box, report])
+    # Run button outputs to both status and report (with validation)
+    run_button.click(fn=run_with_validation, inputs=run_inputs, outputs=[status_box, report])
+    query_textbox.submit(fn=run_with_validation, inputs=run_inputs, outputs=[status_box, report])
 
     # Stop button updates both status and report
     stop_button.click(fn=stop_research, outputs=[status_box, report])

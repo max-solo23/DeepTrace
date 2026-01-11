@@ -14,7 +14,6 @@ from backend.app.core.retry import retry_with_backoff, get_retry_config
 from backend.app.core.status_reporter import StatusReporter
 from backend.app.core.error_handling import ErrorReportGenerator
 from backend.app.core.persistence import DatabasePersistence
-from backend.app.data import init_db
 import asyncio
 import os
 import logging
@@ -26,6 +25,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Constants
+SEARCH_TIMEOUT_SECONDS = 60
 
 
 class ResearchManager:
@@ -64,20 +66,10 @@ class ResearchManager:
 
         Yields:
             Status messages and final markdown report
-
-        Error Handling:
-            - Planning failures: return partial report with error
-            - Search failures: continue with successful searches
-            - Writing failures: return structured error report
-            - Email failures: log but don't block completion
         """
-        # Reset stop flag for new run
         self._stop_requested.clear()
-
-        # Initialize performance tracker
         tracker = PerformanceTracker(mode)
         tracker.start()
-
         trace_id = gen_trace_id()
 
         try:
@@ -85,182 +77,131 @@ class ResearchManager:
                 trace_url = f"https://platform.openai.com/traces/trace?trace_id={trace_id}"
                 print(f"View trace: {trace_url}")
 
-                # Initialize status reporter
                 status_reporter = StatusReporter(mode, trace_url)
                 status_reporter.add_starting()
                 yield status_reporter.get_current_status()
 
                 logger.info(f"Starting research for query: {query} in {mode.value.upper()} mode")
-                print(f"[RESEARCH] Starting research in {mode.value.upper()} mode...")
 
-                # CHECKPOINT: Before planning
+                # === PLANNING PHASE ===
                 self._check_if_stopped()
-
-                # Planning phase with retry
                 status_reporter.add_planning_start()
                 yield status_reporter.get_current_status()
 
-                tracker.start_planning()
-                search_plan = await self._plan_searches_with_retry(query, mode)
-                tracker.end_planning()
+                search_plan = await self._run_planning_phase(query, mode, tracker)
 
                 if search_plan is None:
-                    # Planning failed completely - return error report
                     logger.error("Planning failed after retries")
                     status_reporter.add_error("Planning failed after retries")
                     yield status_reporter.get_current_status()
-                    error_report = ErrorReportGenerator.create_planning_failure_report(query)
-                    yield error_report.markdown_report
+                    yield ErrorReportGenerator.create_planning_failure_report(query).markdown_report
                     return
 
-                # Show the planned searches with reasoning
                 status_reporter.add_planning_complete(len(search_plan.searches), search_plan.searches)
                 yield status_reporter.get_current_status()
 
-                # CHECKPOINT: After planning, before searching
+                # === SEARCH PHASE ===
                 self._check_if_stopped()
-
-                # Search phase with partial results handling
                 status_reporter.add_search_start()
                 yield status_reporter.get_current_status()
 
                 tracker.start_searching()
-
-                # Perform searches with real-time updates
                 num_searches = len(search_plan.searches)
                 logger.info(f"Starting {num_searches} searches in {mode.value} mode...")
-                print(f"[SEARCH] Starting {num_searches} searches in {mode.value} mode...")
 
-                num_completed = 0
                 tasks = [asyncio.create_task(self._search_with_retry(item)) for item in search_plan.searches]
-                search_results = []
+                search_results: list[str] = []
+                num_completed = 0
 
                 try:
                     for task in asyncio.as_completed(tasks):
                         self._check_if_stopped()
-
                         result = await task
                         num_completed += 1
+                        success = result is not None
 
                         if result is not None:
                             search_results.append(result)
-                            logger.info(f"Search successful (total successful: {len(search_results)})")
-                            status_reporter.add_search_progress(num_completed, num_searches, len(search_results), True)
+                            logger.info(f"Search successful (total: {len(search_results)})")
                         else:
                             logger.warning("Search failed after retries")
-                            status_reporter.add_search_progress(num_completed, num_searches, len(search_results), False)
 
-                        print(f"[SEARCH] Progress: {num_completed}/{len(tasks)} completed ({len(search_results)} successful)")
-
-                        # Yield updated status after each search completes
+                        status_reporter.add_search_progress(num_completed, num_searches, len(search_results), success)
                         yield status_reporter.get_current_status()
 
                 except asyncio.CancelledError:
-                    # Stop requested - cancel all pending tasks to prevent resource leaks
-                    logger.info("Stop requested - cancelling pending search tasks")
                     for task in tasks:
                         if not task.done():
                             task.cancel()
-
-                    # Wait for all cancellations to complete
                     await asyncio.gather(*tasks, return_exceptions=True)
-                    raise  # Re-raise to propagate cancellation
+                    raise
 
                 tracker.end_searching()
 
                 if not search_results:
-                    # No searches succeeded - return error report
                     logger.error("All searches failed")
                     status_reporter.add_error("All searches failed")
                     yield status_reporter.get_current_status()
-                    error_report = ErrorReportGenerator.create_search_failure_report(query)
-                    yield error_report.markdown_report
+                    yield ErrorReportGenerator.create_search_failure_report(query).markdown_report
                     return
 
-                status_reporter.add_search_complete(len(search_results), len(search_plan.searches))
+                status_reporter.add_search_complete(len(search_results), num_searches)
                 yield status_reporter.get_current_status()
 
-                # CHECKPOINT: After searching, before writing
+                # === WRITING PHASE ===
                 self._check_if_stopped()
-
-                # Writing phase with retry
                 status_reporter.add_writing_start()
                 yield status_reporter.get_current_status()
 
-                tracker.start_writing()
-                report = await self._write_report_with_retry(query, search_results)
-                tracker.end_writing()
+                report = await self._run_writing_phase(query, search_results, tracker)
 
                 if report is None:
-                    # Report generation failed - return structured error
                     logger.error("Report generation failed after retries")
                     status_reporter.add_error("Report generation failed after retries")
                     yield status_reporter.get_current_status()
-                    error_report = ErrorReportGenerator.create_writing_failure_report(query, search_results)
-                    yield error_report.markdown_report
+                    yield ErrorReportGenerator.create_writing_failure_report(query, search_results).markdown_report
                     return
 
-                # Recalculate confidence score using our heuristic
-                report.confidence_score = calculate_confidence(
-                    len(search_results),
-                    search_results
-                )
                 confidence_label = get_confidence_label(report.confidence_score)
-
                 logger.info(f"Report completed with confidence: {confidence_label} ({report.confidence_score:.2f})")
                 status_reporter.add_writing_complete(report.confidence_score, confidence_label)
                 yield status_reporter.get_current_status()
 
-                # CHECKPOINT: After writing, before database save
+                # === PERSISTENCE PHASE ===
                 self._check_if_stopped()
-
-                # Save to database
-                db_persistence = DatabasePersistence(logger)
-                report_id = db_persistence.save_report_safely(query, mode, report, status_reporter)
+                report_id = await self._run_persistence_phase(query, mode, report, status_reporter)
 
                 if report_id:
                     status_reporter.add_database_saved(report_id)
                 else:
                     status_reporter.add_database_error("Database error")
-
                 yield status_reporter.get_current_status()
 
-                # CHECKPOINT: After database, before email
+                # === EMAIL PHASE ===
                 self._check_if_stopped()
-
-                # Email phase (optional, failure doesn't block)
                 if os.environ.get("SENDGRID_API_KEY"):
                     status_reporter.add_email_sending()
                     yield status_reporter.get_current_status()
 
-                email_sent, email_messages = await self.send_email(report)
+                email_sent, _ = await self.send_email(report)
                 if email_sent:
                     status_reporter.add_email_success()
                 elif os.environ.get("SENDGRID_API_KEY"):
                     status_reporter.add_email_failure()
 
-                # Complete performance tracking
                 tracker.end()
-
                 status_reporter.add_completion()
                 yield status_reporter.get_current_status()
-
-                # Final yield: show the full report
                 yield report.markdown_report
 
         except asyncio.CancelledError:
-            # User requested stop - return gracefully with partial results
             logger.info("Research cancelled by user request - showing partial results")
             status_reporter.add_stopped_by_user()
             yield status_reporter.get_current_status()
-            return
 
         except Exception as exc:
-            # Catch-all for unexpected errors - graceful degradation
             logger.error(f"Unexpected error in research pipeline: {type(exc).__name__}: {str(exc)}")
             yield f"Unexpected error occurred: {type(exc).__name__}"
-
-            # Return a graceful error report
             error_report = ErrorReportGenerator.create_unexpected_error_report(query, exc)
             yield error_report.markdown_report
 
@@ -275,25 +216,74 @@ class ResearchManager:
         """
         if not os.environ.get("SENDGRID_API_KEY"):
             logger.info("SENDGRID_API_KEY not set; skipping email")
-            print("[EMAIL] SENDGRID_API_KEY not set; skipping email.")
             return False, ["SENDGRID_API_KEY not set; skipping email."]
 
         try:
             logger.info("Attempting to send email...")
-            print("[EMAIL] Sending report via email...")
             messages = ["Sending email..."]
             await Runner.run(
                 email_agent,
                 report.markdown_report,
             )
             logger.info("Email sent successfully")
-            print("[EMAIL] Email sent successfully")
             messages.append("Email sent.")
             return True, messages
         except Exception as exc:
             logger.error(f"Email failed: {type(exc).__name__}: {str(exc)}")
-            print(f"[EMAIL] Email failed: {type(exc).__name__}")
             return False, [f"Email failed ({type(exc).__name__}). Check SendGrid config."]
+
+    # ========== Pipeline Phase Methods ==========
+
+    async def _run_planning_phase(
+        self,
+        query: str,
+        mode: ResearchMode,
+        tracker: PerformanceTracker
+    ) -> WebSearchPlan | None:
+        """Execute the planning phase.
+
+        Returns:
+            WebSearchPlan if successful, None if failed
+        """
+        tracker.start_planning()
+        search_plan = await self._plan_searches_with_retry(query, mode)
+        tracker.end_planning()
+        return search_plan
+
+    async def _run_writing_phase(
+        self,
+        query: str,
+        search_results: list[str],
+        tracker: PerformanceTracker
+    ) -> ReportData | None:
+        """Execute the writing phase.
+
+        Returns:
+            ReportData if successful, None if failed
+        """
+        tracker.start_writing()
+        report = await self._write_report_with_retry(query, search_results)
+        tracker.end_writing()
+
+        if report:
+            report.confidence_score = calculate_confidence(len(search_results), search_results)
+
+        return report
+
+    async def _run_persistence_phase(
+        self,
+        query: str,
+        mode: ResearchMode,
+        report: ReportData,
+        status_reporter: StatusReporter
+    ) -> str | None:
+        """Execute the database persistence phase.
+
+        Returns:
+            Report ID if saved successfully, None otherwise
+        """
+        db_persistence = DatabasePersistence(logger)
+        return db_persistence.save_report_safely(query, mode, report, status_reporter)
 
     # ========== Resilient Methods with Retry Logic ==========
 
@@ -305,7 +295,6 @@ class ResearchManager:
             WebSearchPlan if successful, None if all attempts fail
         """
         logger.info(f"Planning searches with retry logic for {mode.value} mode...")
-        print(f"[PLANNING] Planning searches for {mode.value} mode...")
 
         async def _plan():
             planner_agent = create_planner_agent(mode)
@@ -317,13 +306,11 @@ class ResearchManager:
 
             # Validate and potentially limit search count
             num_searches = len(plan.searches)
-            print(f"[PLANNING] Planner proposed {num_searches} searches")
-
             validated_count = validate_source_count(num_searches, mode)
 
             # If we need to truncate, do so
             if validated_count < num_searches:
-                print(f"[PLANNING] Truncating from {num_searches} to {validated_count} searches")
+                logger.info(f"Truncating from {num_searches} to {validated_count} searches")
                 plan.searches = plan.searches[:validated_count]
 
             return plan
@@ -337,20 +324,22 @@ class ResearchManager:
 
         if search_plan:
             logger.info(f"Successfully planned {len(search_plan.searches)} searches")
-            print(f"[PLANNING] Will perform {len(search_plan.searches)} searches")
         else:
             logger.error("Failed to plan searches after all retry attempts")
-            print("[PLANNING] Failed to plan searches")
 
         return search_plan
 
 
-    async def _search_with_retry(self, item: WebSearchItem) -> str | None:
+    async def _search_with_retry(self, item: WebSearchItem, timeout: int = SEARCH_TIMEOUT_SECONDS) -> str | None:
         """
-        Perform a single search with retry logic.
+        Perform a single search with retry logic and timeout.
+
+        Args:
+            item: Search item to execute
+            timeout: Maximum seconds to wait for this search
 
         Returns:
-            Search result string if successful, None if all attempts fail
+            Search result string if successful, None if timeout or failure
         """
         async def _search():
             input_text = f"Search term: {item.query}\nReason for searching: {item.reason}"
@@ -361,11 +350,21 @@ class ResearchManager:
             return str(result.final_output)
 
         config = get_retry_config("search")
-        return await retry_with_backoff(
-            _search,
-            max_attempts=config.max_attempts,
-            base_delay=config.base_delay
-        )
+
+        try:
+            # Wrap retry logic with timeout to prevent hanging
+            return await asyncio.wait_for(
+                retry_with_backoff(
+                    _search,
+                    max_attempts=config.max_attempts,
+                    base_delay=config.base_delay
+                ),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            # Graceful degradation - log and continue with other searches
+            logger.warning(f"Search timed out after {timeout}s:  {item.query}")
+            return None
 
     async def _write_report_with_retry(self, query: str, search_results: list[str]) -> ReportData | None:
         """
@@ -375,7 +374,6 @@ class ResearchManager:
             ReportData if successful, None if all attempts fail
         """
         logger.info(f"Writing report with retry logic from {len(search_results)} sources...")
-        print(f"[WRITER] Synthesizing report from {len(search_results)} sources...")
 
         async def _write():
             input_text = (
@@ -398,9 +396,7 @@ class ResearchManager:
 
         if report:
             logger.info("Successfully generated report")
-            print("[WRITER] Report completed")
         else:
             logger.error("Failed to generate report after all retry attempts")
-            print("[WRITER] Failed to write report")
 
         return report
